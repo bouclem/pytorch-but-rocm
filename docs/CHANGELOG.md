@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deprecated `which()` function from `tools/setup_helpers/__init__.py`
 - `codex_setup.sh` reference from `MANIFEST.in`
 - Unused imports in `setup.py` (`shutil`, `tempfile`, `zipfile`, `IS_DARWIN`)
+- `tools/download_mnist.py` - Unused MNIST download script (no references)
+- `tools/optional_submodules.py` - Unused optional submodules helper (no references)
+- `tools/substitute.py` - Unused string substitution tool (no references)
+- `tools/merge_compile_commands.py` - Compile commands merger + CMake target in `PostBuildSteps.cmake`
+- `tools/packaging/build_wheel.py` - Unused wheel packaging script (no references)
+- `tools/embed_libomp_macos.py` - macOS-only OpenMP embedding + CMake block in `PostBuildSteps.cmake`
+- 6 BUCK files (`BUCK.oss`, `BUCK.bzl`) - Meta internal build system, not used by CMake
+- 35 `.bzl` files across `c10/`, `tools/`, `torch/` - Meta Buck build definitions
+- `tools/build_defs/` directory (15 files) - Buck build helper definitions
 
 ### Fixed
 - _Nothing yet_

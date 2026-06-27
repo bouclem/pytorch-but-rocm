@@ -8,6 +8,11 @@
 - [x] Clean up `setup.py` - remove AI-generated helper functions marked as "AI SLOP"
 - [x] Remove unused upstream tooling files (nightly.py, stale_issues.py, nvcc_fix_deps.py, etc.)
 - [x] Remove deprecated `which()` from `tools/setup_helpers/__init__.py`
+- [x] Remove unused Python files (download_mnist.py, optional_submodules.py, substitute.py, etc.)
+- [x] Remove Meta-internal BUCK/bzl build files (41 files + tools/build_defs/)
+- [x] Remove macOS-only tools (embed_libomp_macos.py) + CMake references
+- [ ] Audit 83 `# deprecated` markers across 33 files in `torch/`
+- [ ] Audit 337 TODO/FIXME with remove/dead/unused/delete across 201 files
 - [ ] Consolidate duplicate ROCm/HIP code paths
 - [ ] Remove unused third-party dependencies
 - [ ] Standardize naming: ROCm vs HIP vs AMD terminology
