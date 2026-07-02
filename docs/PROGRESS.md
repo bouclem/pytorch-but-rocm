@@ -556,3 +556,48 @@ Complete.
 - Or: Add more BGEMM lookup_dispatch entries for additional LLM shapes (e.g., seq_len=8192)
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Add TORCH_ROCM_BGEMM_TILE_VERBOSE for per-kernel BGEMM tile selection logging
+
+## Iteration 17 — Expand BGEMM lookup_dispatch for head_dim=256 and seq_len=8192
+
+### Plan
+The BGEMM lookup_dispatch table was missing shapes for head_dim=256 (used by Gemma, Llama3-70B with GQA) and seq_len=8192 (long context windows). It also lacked Attn@V entries for seq_len=512 and seq_len=1024. These shapes would fall through to the heuristic dispatch, which may not select the optimal kernel.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Added 5 Q@K^T entries for head_dim=256: (512,512,256), (1024,1024,256), (2048,2048,256), (4096,4096,256), (8192,8192,256)
+  - Added 2 Q@K^T entries for seq_len=8192 with head_dim=64 and 128: (8192,8192,64), (8192,8192,128)
+  - Added 9 Attn@V entries: (512,64,512), (512,128,512), (1024,64,1024), (1024,128,1024), (2048,256,2048), (4096,256,4096), (8192,64,8192), (8192,128,8192), (8192,256,8192)
+  - Total lookup_dispatch entries: 12 → 28
+
+### Kernel Selection Logic
+- **Very large square (8192×8192)**: 256x256x32 v4 kernel — maximizes tile coverage for large grids
+- **Large square (4096×4096)**: 256x224x64 v3 kernel — good balance of tile size and K-dimension
+- **Medium square (1024-2048)**: 224x256x64 v3 kernel — good occupancy for medium grids
+- **Small square (512)**: 128x128x64 v3 kernel — avoids wasting tiles on small grids
+- **Attn@V with n≤64**: 16x64x64 v2 kernel — skinny N dimension needs small NBLOCK
+- **Attn@V with n≥128**: 128x128x64 v3 kernel — balanced tile for medium N
+
+### Why It Matters
+head_dim=256 is used by modern LLMs like Gemma 2/3 (d_head=256) and Llama 3 70B (hidden=8192, 32 heads → head_dim=256 with GQA). seq_len=8192 is a common long-context window. Without these entries, these shapes would fall through to the heuristic dispatch, which uses a one-size-fits-all approach that may not be optimal. The lookup table ensures the best kernel is selected for these specific high-frequency shapes.
+
+### Research Findings
+- Common head_dims: 64 (BERT, small models), 128 (Llama, Mistral, Qwen), 256 (Gemma, Llama3-70B)
+- Common seq_lens: 512, 1024, 2048, 4096, 8192
+- Flash Attention supports head_dim up to 256, with optimal performance at powers of 2
+- Gemma 2 9B uses head_dim=256 (hidden=3584, 16 heads → 224 → rounded to 256 with padding)
+- Llama 3 70B uses head_dim=256 with GQA (hidden=8192, 32 query heads, 8 KV heads)
+
+### Status
+Complete.
+
+### What Was Learned
+- The lookup_dispatch table uses `std::tuple<int,int,int>` as key — the m, n, k values are int64_t in the function signature but cast to int for the map lookup
+- The 256x256x32 v4 kernel is the largest available tile and should be used for very large square shapes where grid dimensions are multiples of 256
+- Attn@V shapes are (seq_len, head_dim, seq_len) — the n dimension is small (head_dim) while k is large (seq_len), requiring different tile configs than Q@K^T
+- The heuristic dispatch at the bottom of `dispatch_bfloat16_bgemm` handles non-standard shapes, but the lookup table provides tuned selections for known high-frequency shapes
+
+### Next Iteration Should Tackle
+- Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half (now enabled by TORCH_ROCM_GEMM_TILE_VERBOSE)
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Add TORCH_ROCM_BGEMM_TILE_VERBOSE for per-kernel BGEMM tile selection logging (which kernel was selected from lookup vs heuristic)
+- Or: Add support for non-power-of-2 head_dims (96, 192) in lookup_dispatch
