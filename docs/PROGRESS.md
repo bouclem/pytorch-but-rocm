@@ -377,3 +377,34 @@ Complete. Committed as `28a47cf` (env var + Windows CK) and `9fc9a3e` (README up
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Add more fork-specific env vars (e.g., TORCH_ROCM_WMMA_TILE_CONFIG for manual tile selection)
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 12 — Add TORCH_ROCM_BLAS_VERBOSE Env Var
+
+### Plan
+Add a fork-specific `TORCH_ROCM_BLAS_VERBOSE=1` env var that prints the selected BLAS backend and any fallback reasons to stderr. This helps users debug which BLAS backend is being used and why, especially in a fork with multiple backend options (hipBLAS, hipBLASLt, CK GEMM).
+
+### Changes
+- **`aten/src/ATen/Context.cpp`**:
+  - Added `#include <cstdio>` for `std::fprintf`
+  - Added `TORCH_ROCM_BLAS_VERBOSE` env var check in `blasPreferredBackend()`
+  - Prints hipBLASLt fallback reason when arch is unsupported
+  - Prints final selected backend name (hipBLAS/rocBLAS, hipBLASLt, CK GEMM, or default)
+- **`README.md`**:
+  - Added `TORCH_ROCM_BLAS_VERBOSE=1` to environment variables table
+
+### Why It Matters
+Users often don't know which BLAS backend PyTorch is actually using. With this fork supporting 3 backends (hipBLAS, hipBLASLt, CK GEMM) plus env var overrides and arch-based fallbacks, it's hard to know what's happening. This env var makes it visible.
+
+### Status
+Complete. Committed as `3a6ba97`.
+
+### What Was Learned
+- `blasPreferredBackend()` is called lazily (not at init) — the verbose output appears on first GEMM call
+- The `static const bool` pattern ensures the env var is only read once
+- `std::fprintf(stderr, ...)` is used instead of `std::cout` to avoid buffering issues and keep debug output separate from normal output
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Add TORCH_ROCM_GEMM_ARCH_VERBOSE env var to print arch detection and CK GEMM support info
+- Or: Look at the inductor CK backend code generation for improvements
