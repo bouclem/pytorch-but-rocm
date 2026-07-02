@@ -37,3 +37,33 @@ Complete. Committed as `7496a79`.
 - Improve the CK GEMM dispatch heuristic in `ck_gemm_bfloat16.hip` — currently only has a single tile config for all shape sizes, with a TODO to "add more configurations. Optimize."
 - Or: Expand CK GEMM to support float16 and float32 types (currently only BFloat16 has CK dispatch)
 - Or: Add more BGEMM kernel configurations for common LLM shapes (the dispatch in `ck_bgemm_bfloat16.hip` has limited shape coverage)
+
+## Iteration 2 — Fix gfx1103 in Half WMMA, Clean Up Debug Code in CK GEMM Template
+
+### Plan
+Fix the same `gfx1103` missing from the Half (float16) WMMA arch list as was fixed for BFloat16 in iteration 1. Also remove debug `printf` and dead benchmark code from `ck_gemm_template.h`.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_gemm_half.hip`**:
+  - WMMA arch list: Add `gfx1103` (RDNA3) — same fix as bfloat16 in iteration 1
+- **`aten/src/ATen/native/hip/ck_gemm_template.h`**:
+  - Remove debug `printf` from WMMA GEMM error path (was printing to stdout before `TORCH_CHECK`)
+  - Remove dead `#if 0` / `#else` benchmark code block with `std::cout` debug output
+
+### Why It Matters
+- `gfx1103` (RX 7900 GRE / RX 7800 XT) was missing from Half WMMA dispatch, causing CK GEMM to fail on this arch with float16
+- Debug `printf` in production code pollutes stdout and provides no useful info since `TORCH_CHECK` already gives a proper error message
+- Dead benchmark code behind `#if 0` adds maintenance burden and confusion
+
+### Status
+Complete. Committed as `e6b2043`.
+
+### What Was Learned
+- The same `gfx1103` omission existed in both `ck_gemm_bfloat16.hip` and `ck_gemm_half.hip` — systematic issue
+- The WMMA template in `ck_gemm_template.h` had debug code that should have been cleaned up before merging upstream
+- The XDL `gemm_impl` path was already clean — only the WMMA `gemm_impl_wmma` had debug artifacts
+
+### Next Iteration Should Tackle
+- Improve CK GEMM dispatch heuristic — the `dispatch_half_gemm` XDL path is entirely behind `#if 0` (disabled), meaning only WMMA works for Half on RDNA3
+- Or: Add shape-based tile selection to the WMMA dispatch (currently uses one config for all shapes)
+- Or: Look into the `ck_gemm_float.hip` to see if it needs similar arch list updates
