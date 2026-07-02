@@ -199,3 +199,36 @@ Complete. Committed as `7450132`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection
 - Or: Investigate the `ck_gemm_float.hip` dispatch for potential improvements
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 7 — Add Architecture Gating to Float CK GEMM
+
+### Plan
+`gemm_internal_ck<float>` in `ck_gemm_float.hip` had no architecture gating — it called `dispatch_float_gemm` directly, which uses XDL (CDNA-only). If called on RDNA3/RDNA4, it would crash since there's no WMMA FP32 path.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_gemm_float.hip`**:
+  - Added arch check in `gemm_internal_ck<float>`: only dispatch to `dispatch_float_gemm` on gfx9 (CDNA)
+  - Added clear `TORCH_CHECK` error message for non-CDNA archs explaining FP32 requires XDL/CDNA
+
+### Why It Matters
+This is a safety/correctness fix. The caller in `CUDABlas.cpp:1217` already checks for gfx11/gfx12 and falls back to cublaslt, but the CK GEMM function itself had no guard. Defense-in-depth: if any future code path calls `gemm_internal_ck<float>` directly, it will get a clear error instead of a crash.
+
+### Research Findings
+- WMMA on RDNA3/RDNA4 supports FP16, BF16, IU8, IU4 — NOT FP32
+- The caller in `CUDABlas.cpp` already has `isGPUArch({"gfx11", "gfx12"})` check for float CK GEMM
+- The bfloat16 and half dispatches already have proper arch gating with WMMA fallback for RDNA and XDL for CDNA
+- Float32 has no WMMA alternative, so the only option is XDL on CDNA or fallback to rocBLAS/hipBLASLt
+
+### Status
+Complete. Committed as `ad6c722`.
+
+### What Was Learned
+- Float32 CK GEMM is XDL-only (CDNA) — no WMMA path exists or is possible on RDNA3/RDNA4
+- The caller already guards against calling CK GEMM with float on RDNA, but the function itself should also be guarded
+- The `gemm_internal_ck<double>` silently returns (no implementation) — this is intentional as a placeholder
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Add more kernel variants to the BGEMM lookup_dispatch map
