@@ -24,7 +24,7 @@ Complete. Committed as `7496a79`.
 - All changes follow the exact same pattern as upstream PyTorch 2.9 (commit `3d4094a`)
 - `ScaledBlas.cpp` and `GroupedBlas.cpp` arch lists correctly left unchanged (FP8/group GEMM require CDNA-specific features)
 - No new tests needed — existing `test_preferred_blas_library_settings` in `test/test_cuda.py` validates BLAS backend selection
-- Build verification requires a ROCm environment (not available on this Windows machine)
+- Build system supports ROCm on Windows (`USE_ROCM` enabled on `LINUX OR WIN32`); `USE_ROCM_CK_GEMM` and `USE_ROCM_CK_SDPA` are currently disabled on WIN32 — a potential future improvement
 
 ### What Was Learned
 - The hipBLASLt preferred/supported arch lists are in `CUDAHooks.cpp` and are the single source of truth for hipBLASLt arch gating
