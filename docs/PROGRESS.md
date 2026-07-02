@@ -327,3 +327,53 @@ Complete. No code changes needed — audit confirmed all files are properly gate
 - Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 11 — Add TORCH_ROCM_PREFER_CK_GEMM Env Var + Enable CK Backend on Windows + README Update
+
+### Plan
+Add a new fork-specific environment variable `TORCH_ROCM_PREFER_CK_GEMM=1` that auto-selects CK GEMM as the preferred BLAS backend at startup. Also enable `setBlasPreferredBackend(CK)` on Windows (was blocked by `#ifdef _MSC_VER`). Update README to document fork-specific enhancements.
+
+### Changes
+- **`aten/src/ATen/Context.h`**:
+  - Added `TORCH_ROCM_PREFER_CK_GEMM` env var check in `blas_preferred_backend` initializer
+  - When set to `1`, initializes `blas_preferred_backend` to `BlasBackend::Ck`
+- **`aten/src/ATen/Context.cpp`** (`setBlasPreferredBackend`):
+  - Removed `#ifdef _MSC_VER` block that blocked all backend changes on Windows
+  - Now allows CK backend on Windows, only blocks Cublaslt on Windows
+  - CK GEMM validity check (arch + build flag) still applies on all platforms
+- **`aten/src/ATen/cuda/CUDABlas.cpp`**:
+  - Removed `!defined(_MSC_VER)` from 4 mixed-type CK GEMM error guards (2 BGEMM + 2 GEMM)
+  - These errors now fire on Windows too, since CK GEMM is enabled on Windows
+  - Fixed incorrect error message: BFloat16 mixed-type said "at::Half"
+- **`README.md`**:
+  - Added fork notice banner at top
+  - Updated AMD ROCm Support section: "Linux and Windows" instead of "Linux only"
+  - Documented fork-specific enhancements (CK GEMM on Windows, expanded arch, BGEMM dispatch, etc.)
+  - Added environment variables table with `TORCH_ROCM_PREFER_CK_GEMM` and upstream vars
+
+### Why It Matters
+- `TORCH_ROCM_PREFER_CK_GEMM=1` makes it trivial to enable CK GEMM — no Python code changes needed
+- Enabling `setBlasPreferredBackend(CK)` on Windows means `torch.backends.cuda.preferred_blas_library('ck')` now works on Windows
+- Removing `!defined(_MSC_VER)` from mixed-type error guards ensures consistent error behavior on Windows
+- README now accurately reflects this fork's capabilities
+
+### Research Findings
+- Upstream uses `TORCH_BLAS_PREFER_CUBLASLT` / `TORCH_BLAS_PREFER_HIPBLASLT` env vars for BLAS backend selection
+- Upstream blocks `setBlasPreferredBackend` entirely on Windows with `#ifdef _MSC_VER`
+- The `!defined(_MSC_VER)` guards on mixed-type GEMM were added because the whole CK path was unreachable on Windows
+- `ROCM_ALLOW_GROUP_GEMM_CK` is an existing fork-relevant env var for grouped GEMM
+
+### Status
+Complete. Committed as `28a47cf` (env var + Windows CK) and `9fc9a3e` (README update).
+
+### What Was Learned
+- The `#ifdef _MSC_VER` block in `setBlasPreferredBackend` was a blanket ban on all backend changes on Windows — needed to be more nuanced
+- Mixed-type GEMM (Half→float, BFloat16→float) is not supported by CK regardless of platform — the error guards are correct, just needed to apply to Windows too
+- The BFloat16 mixed-type error message incorrectly said "at::Half" — a copy-paste bug from upstream
+- README updates are important for fork usability — users need to know what's different and what env vars are available
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Add more fork-specific env vars (e.g., TORCH_ROCM_WMMA_TILE_CONFIG for manual tile selection)
+- Or: Look at the inductor CK backend code generation for improvements
