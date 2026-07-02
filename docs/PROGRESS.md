@@ -128,3 +128,44 @@ Complete. Committed as `fdc71bd`.
 - Or: Enable the commented-out lookup_dispatch map for specific shape dispatching
 - Or: Add shape-based tile selection to WMMA GEMM dispatch
 - Or: Investigate enabling CK SDPA on Windows (may require CK submodule update)
+
+## Iteration 5 — Improve BGEMM Dispatch Heuristic
+
+### Plan
+The BGEMM dispatch in `ck_bgemm_bfloat16.hip` only used 8 of 32 available kernel variants, had explicit gaps in shape coverage (comment: "<512, <1024, <2048 missing"), and the lookup_dispatch map was commented out. Improve coverage for LLM-relevant shapes.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Enabled `lookup_dispatch` map for exact shape matching (was commented out)
+  - Added sub-dispatch for n=512, n=1024, n=2048 in m<=5120 range (fills the explicit gap)
+  - Added large-m (>8192) dispatch branch with:
+    - `256x16x64` kernel for skinny-n (decode phase: m large, n<=16)
+    - `128x128x64` kernel for medium-n (n<=128)
+    - `256x224x64` kernel for large-n (n<=4096)
+    - `256x256x32` kernel for large square shapes (better tile fit)
+  - Removed dead debug `std::cerr` comment block from `bgemm_internal_ck`
+  - Removed unused `#include <iostream>`
+
+### Why It Matters
+BGEMM (batched GEMM) is used in attention computation (Q@K^T, Attn@V) and other batched operations. The previous dispatch had no coverage for m>8192 and no sub-ranges for n=512-2048, causing suboptimal kernel selection for common LLM shapes. The lookup_dispatch map enables exact-match dispatching for known high-priority shapes.
+
+### Research Findings
+- LLM attention BGEMM shapes: Q@K^T has m=n=seq_len (512-4096), k=head_dim (64/128)
+- Decode phase: m=1, n=head_dim, k=cache_len (skinny-m, large-k)
+- Available but unused kernel variants: 256x256x32 (v3/v4/v5), 256x16x64, 128x16x128, 64x16x16 v2
+- 256x256x32 kernels use smaller K-dim (32 vs 64) which can improve occupancy for large square GEMMs
+
+### Status
+Complete. Committed as `aca9a75`.
+
+### What Was Learned
+- The lookup_dispatch pattern (hash map of (m,n,k) -> kernel) is a good approach for known high-priority shapes
+- The dispatch comment "<512, <1024, <2048 missing" was an explicit TODO from the original author
+- 32 kernel variants were compiled but only 8 were dispatched — significant untapped potential
+- The `#include <iostream>` was only needed for debug output that was already commented out
+
+### Next Iteration Should Tackle
+- Add more entries to lookup_dispatch for common LLM attention shapes (e.g. {4096, 64, 4096}, {2048, 128, 2048})
+- Or: Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection
+- Or: Investigate the `ck_gemm_float.hip` dispatch for potential improvements
