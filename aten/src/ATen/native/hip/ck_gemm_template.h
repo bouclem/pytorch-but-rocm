@@ -376,32 +376,12 @@ void gemm_impl_wmma(CUDABLAS_GEMM_ARGTYPES(Dtype)) {
 
  if(!gemm.IsSupportedArgument(argument))
  {
-        printf("error shape = %ld %ld %ld TRANSA=%d TRANSB=%d \n",
-                        n, m, k,TRANSA, TRANSB);
         TORCH_CHECK(false, "wrong! device_gemm with the specified compilation parameters does not support this GEMM problem");
  }
 
 
  auto stream = at::cuda::getCurrentCUDAStream().stream();
-#if 1
  invoker.Run(argument, StreamConfig{stream, false});
-#else
-  float ave_time = invoker.Run(argument, StreamConfig{stream, true});
-  std::size_t flop = std::size_t(2) * M * N * K;
-
-  std::size_t num_btype =
-              sizeof(ADataType) * M * K + sizeof(BDataType) * K * N + sizeof(CDataType) * M * N;
-
-  float tflops = static_cast<float>(flop) / 1.E9 / ave_time;
-
-  float gb_per_sec = num_btype / 1.E6 / ave_time;
-
-  std::cout << "Perf: " << std::setw(10) << ave_time << " ms, " << tflops << " TFlops, "
-                          << gb_per_sec << " GB/s, " << N << ' ' << M << ' ' << k << ' '
-                          << "stride: " << StrideA << ' ' << StrideB << ' ' << StrideC << ' '
-                          <<  gemm.GetTypeString()
-                          << std::endl;
-#endif
 }
 
 } // namespace at::native
