@@ -4,6 +4,7 @@
 #if defined(USE_ROCM_CK_GEMM)
 #include <ATen/native/hip/ck_gemm_template.h>
 #include <ck/utility/sequence.hpp>
+#include <cstdio>
 
 template <ck::index_t... Is>
 using S = ck::Sequence<Is...>;
@@ -475,9 +476,16 @@ void dispatch_float_gemm(CUDABLAS_GEMM_ARGTYPES(float)) {
 
 template <>
 void gemm_internal_ck<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
+  static const bool tile_verbose =
+      c10::utils::check_env("TORCH_ROCM_GEMM_TILE_VERBOSE") == true;
+
   // Float32 CK GEMM uses XDL which is only available on CDNA (gfx9).
   // WMMA on RDNA3/RDNA4 does not support FP32 — only FP16/BF16/IU8/IU4.
   if (at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
+    if (tile_verbose) {
+      std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] dtype=float m=%lld n=%lld k=%lld "
+          "dispatch=XDL tile=128x128x64\n", (long long)m, (long long)n, (long long)k);
+    }
     dispatch_float_gemm(CUDABLAS_GEMM_ARGS(float));
   }
   else {

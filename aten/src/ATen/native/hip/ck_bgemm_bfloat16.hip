@@ -3,6 +3,8 @@
 #include <ATen/native/hip/ck_bgemm.h>
 #include <ATen/native/hip/bgemm_kernels/bgemm_kernel_collection.h>
 #include <ATen/detail/CUDAHooksInterface.h>
+#include <c10/util/env.h>
+#include <cstdio>
 
 namespace at::native {
 
@@ -107,6 +109,14 @@ void bgemm_internal_ck<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
       "bgemm_internal_ck<at::BFloat16> requires CDNA (gfx9) architecture. ",
       "CK BGEMM kernels use XDL instructions not available on RDNA. ",
       "Use a different BLAS backend (hipBLASLt or rocBLAS) for BGEMM on this GPU.");
+
+  static const bool tile_verbose =
+      c10::utils::check_env("TORCH_ROCM_GEMM_TILE_VERBOSE") == true;
+  if (tile_verbose) {
+    std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] dtype=BFloat16 bgemm m=%lld n=%lld k=%lld "
+        "dispatch=XDL batch=%lld\n", (long long)m, (long long)n, (long long)k, (long long)num_batches);
+  }
+
   BGEMMKernel_BFloat16 bgemm_impl = dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   bgemm_impl(CUDABLAS_BGEMM_ARGS(at::BFloat16));
 }

@@ -512,3 +512,47 @@ Complete.
 - Or: Add TORCH_ROCM_GEMM_TILE_VERBOSE env var to print which tile config is selected for each GEMM
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Add more BGEMM lookup_dispatch entries for additional LLM shapes (e.g., seq_len=8192)
+
+## Iteration 16 — Add TORCH_ROCM_GEMM_TILE_VERBOSE Env Var
+
+### Plan
+Add a fork-specific `TORCH_ROCM_GEMM_TILE_VERBOSE=1` env var that prints GEMM shape (m, n, k), dtype, dispatch path (XDL/WMMA), and tile config to stderr for each CK GEMM/BGEMM call. This complements the existing `TORCH_ROCM_BLAS_VERBOSE` (which backend) and `TORCH_ROCM_GEMM_ARCH_VERBOSE` (which GPU) by showing the dispatch-level decision (which kernel path and tile config).
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_gemm_bfloat16.hip`**:
+  - Added `#include <cstdio>` for `std::fprintf`
+  - Added `TORCH_ROCM_GEMM_TILE_VERBOSE` check in `gemm_internal_ck<at::BFloat16>`
+  - Prints dtype, m/n/k, dispatch path (WMMA/XDL), and tile config (128x256x64 for WMMA, 128x128x64 for XDL)
+- **`aten/src/ATen/native/hip/ck_gemm_half.hip`**:
+  - Same pattern as bfloat16 — added `#include <cstdio>` and verbose output in `gemm_internal_ck<at::Half>`
+- **`aten/src/ATen/native/hip/ck_gemm_float.hip`**:
+  - Added `#include <cstdio>` and verbose output in `gemm_internal_ck<float>` (XDL only, no WMMA for float32)
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Added `#include <c10/util/env.h>` and `#include <cstdio>`
+  - Added verbose output in `bgemm_internal_ck<at::BFloat16>` — prints dtype, m/n/k, dispatch=XDL, and batch count
+- **`README.md`**:
+  - Added `TORCH_ROCM_GEMM_TILE_VERBOSE=1` to environment variables table
+
+### Why It Matters
+This env var is essential for future tile optimization work. Currently the WMMA GEMM dispatch uses a single hardcoded tile config (128x256x64) for all shapes. To add shape-based tile selection (the top TODO item), we need to know which shapes are being dispatched and what config they get. This env var makes that visible. Combined with `TORCH_ROCM_BLAS_VERBOSE` and `TORCH_ROCM_GEMM_ARCH_VERBOSE`, users can now fully trace the entire GEMM dispatch pipeline.
+
+### Research Findings
+- RDNA3 WMMA uses 16x16x16 tiles (GPUOpen documentation)
+- Optimal tile sizes vary by GEMM shape: smaller tiles for small/skinny GEMMs, larger tiles for large square GEMMs (vLLM PR #34275 tile-size sweep on gfx1100)
+- BK=32 or BK=64 is consistently optimal on RDNA3, while current config uses KBLOCK=64 (good)
+- The current WMMA tile config (MBLOCK=128, NBLOCK=256, KBLOCK=64) is a reasonable default but not optimal for all shapes
+
+### Status
+Complete.
+
+### What Was Learned
+- GEMM/BGEMM parameters use `int64_t`, not `int` — format strings must use `%lld` with `(long long)` cast for portability
+- The BGEMM parameter is `num_batches`, not `batch` — checked the `CUDABLAS_BGEMM_ARGTYPES` macro definition
+- The BGEMM file needed explicit `#include <c10/util/env.h>` since it doesn't include `ck_gemm_template.h` (which transitively provides `c10::utils::check_env` via `<ATen/ATen.h>`)
+- The `static const bool` pattern ensures the env var is only read once per process
+
+### Next Iteration Should Tackle
+- Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half (now enabled by TORCH_ROCM_GEMM_TILE_VERBOSE)
+- Or: Add more BGEMM lookup_dispatch entries for additional LLM shapes (e.g., seq_len=8192)
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Add TORCH_ROCM_BGEMM_TILE_VERBOSE for per-kernel BGEMM tile selection logging

@@ -4,6 +4,7 @@
 #if defined(USE_ROCM_CK_GEMM)
 #include <ATen/native/hip/ck_gemm_template.h>
 #include <ck/utility/sequence.hpp>
+#include <cstdio>
 
 template <ck::index_t... Is>
 using S = ck::Sequence<Is...>;
@@ -772,6 +773,9 @@ void dispatch_bfloat16_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
 
 template <>
 void gemm_internal_ck<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
+  static const bool tile_verbose =
+      c10::utils::check_env("TORCH_ROCM_GEMM_TILE_VERBOSE") == true;
+
   static const std::vector<std::string> wmma_archs = {
 #if ROCM_VERSION >= 60300
     "gfx1100", "gfx1101", "gfx1102", "gfx1103",
@@ -784,9 +788,17 @@ void gemm_internal_ck<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
 #endif
   };
   if (at::detail::getCUDAHooks().isGPUArch(wmma_archs)) {
+    if (tile_verbose) {
+      std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] dtype=BFloat16 m=%lld n=%lld k=%lld "
+          "dispatch=WMMA tile=128x256x64\n", (long long)m, (long long)n, (long long)k);
+    }
     dispatch_bfloat16_gemm_wmma(CUDABLAS_GEMM_ARGS(at::BFloat16));
   }
   else if (at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
+    if (tile_verbose) {
+      std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] dtype=BFloat16 m=%lld n=%lld k=%lld "
+          "dispatch=XDL tile=128x128x64\n", (long long)m, (long long)n, (long long)k);
+    }
     dispatch_bfloat16_gemm(CUDABLAS_GEMM_ARGS(at::BFloat16));
   }
   else {
