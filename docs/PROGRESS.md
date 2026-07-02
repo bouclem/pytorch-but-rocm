@@ -408,3 +408,34 @@ Complete. Committed as `3a6ba97`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Add TORCH_ROCM_GEMM_ARCH_VERBOSE env var to print arch detection and CK GEMM support info
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 13 — Add TORCH_ROCM_GEMM_ARCH_VERBOSE Env Var
+
+### Plan
+Add a fork-specific `TORCH_ROCM_GEMM_ARCH_VERBOSE=1` env var that prints GPU name, gcnArch, and CK GEMM support status to stderr. Complements `TORCH_ROCM_BLAS_VERBOSE` by showing the arch detection side.
+
+### Changes
+- **`aten/src/ATen/Context.cpp`**:
+  - Added `#include <ATen/cuda/CUDAContextLight.h>` (guarded by `USE_ROCM`) for `at::cuda::getDeviceProperties()`
+  - Added `TORCH_ROCM_GEMM_ARCH_VERBOSE` env var check in `ckGemmSupported()`
+  - Prints GPU index, name, and gcnArch for each device
+  - Prints whether CK GEMM is supported or not
+- **`README.md`**:
+  - Added `TORCH_ROCM_GEMM_ARCH_VERBOSE=1` to environment variables table
+
+### Why It Matters
+Users with unsupported GPUs often don't understand why CK GEMM isn't working. This env var shows exactly what GPU was detected and whether it's in the supported list. Combined with `TORCH_ROCM_BLAS_VERBOSE`, users can now fully trace the BLAS backend selection process.
+
+### Status
+Complete. Committed as `8cc27ec`.
+
+### What Was Learned
+- `at::cuda::getDeviceProperties()` returns `cudaDeviceProp*` with `name` and `gcnArchName` fields
+- `CUDAContextLight.h` is the minimal include for device properties — doesn't pull in full CUDA context
+- The `ckGemmSupported()` function is called lazily — verbose output appears when CK backend is first considered
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Add TORCH_ROCM_FORCE_BLAS_BACKEND env var as a simpler alternative to the existing per-backend env vars
+- Or: Look at the inductor CK backend code generation for improvements
