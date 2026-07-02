@@ -93,3 +93,38 @@ Complete. Committed as `66e96ae`.
 - Add shape-based tile selection to WMMA dispatch (currently uses one config for all shapes)
 - Or: Improve BGEMM kernel dispatch heuristic with more shape coverage
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 4 — Enable CK GEMM on Windows
+
+### Plan
+`USE_ROCM_CK_GEMM` was disabled on Windows with `NOT WIN32`. AMD engineers confirmed CK GEMM works on Windows. Enable it to unlock all CK GEMM optimizations for Windows ROCm users.
+
+### Changes
+- **`CMakeLists.txt`**:
+  - Changed `USE_ROCM_CK_GEMM` from `ON "USE_ROCM;NOT WIN32"` to `ON "USE_ROCM"` — removes the Windows restriction
+  - `USE_ROCM_CK_SDPA` left unchanged (still `NOT WIN32`) due to separate `get_warp_size()` constexpr issues
+
+### Why It Matters
+This is the highest-leverage change so far — it unlocks all CK GEMM optimizations (BFloat16/float16/float32 dispatch, group GEMM, BGEMM) for Windows ROCm users. Without this, Windows users get no benefit from the CK GEMM path at all. All the arch list fixes and dispatch improvements from iterations 1-3 were Linux-only because of this gate.
+
+### Research Findings
+- ScottTodd (AMD) confirmed: "it builds successfully on Windows if you build rock with composable kernel and then enable USE_ROCM_CK_GEMM in torch and remove the windows check in torch cmake"
+- A previous linking issue with `group_gemm_ck` on Windows (TheRock issue #2054) was fixed in upstream PyTorch commit `f9b81e23`
+- CK SDPA has separate Windows issues (PR #182733, #184375) — `get_warp_size() not constexpr` on certain ROCm versions
+- The CK GEMM HIP source files have zero Windows-specific guards — they're clean HIP code
+- `hasCKGEMM()` in CUDAHooks.cpp is already properly guarded with `#if defined(USE_ROCM) && defined(USE_ROCM_CK_GEMM)`
+
+### Status
+Complete. Committed as `fdc71bd`.
+
+### What Was Learned
+- The `NOT WIN32` restriction on CK GEMM was likely a conservative default that became outdated as ROCm Windows support matured
+- CK GEMM and CK SDPA have separate Windows readiness — GEMM works, SDPA doesn't yet
+- The ATen CMakeLists.txt conditionally includes CK headers and excludes CK/BGEMM .hip files based on `USE_ROCM_CK_GEMM` — all properly structured
+- The `ck_group_gemm.h` declaration is unconditionally included but the call sites are guarded with `#if defined(USE_ROCM_CK_GEMM)`
+
+### Next Iteration Should Tackle
+- Improve BGEMM dispatch heuristic — only 8 of 32 available kernel variants are used, and the dispatch has gaps for n=512-1024 and n=2048 ranges
+- Or: Enable the commented-out lookup_dispatch map for specific shape dispatching
+- Or: Add shape-based tile selection to WMMA GEMM dispatch
+- Or: Investigate enabling CK SDPA on Windows (may require CK submodule update)
