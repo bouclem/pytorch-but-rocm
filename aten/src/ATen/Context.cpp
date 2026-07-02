@@ -12,6 +12,10 @@
 
 #include <ATen/cpu/FlushDenormal.h>
 
+#ifdef USE_ROCM
+#include <ATen/cuda/CUDAContextLight.h>
+#endif
+
 #ifdef USE_FBGEMM
 C10_DIAGNOSTIC_PUSH_AND_IGNORED_IF_DEFINED("-Wextra-semi")
 #include <fbgemm/Fbgemm.h>
@@ -602,6 +606,9 @@ bool Context::ckSDPASupported() {
 
 bool Context::ckGemmSupported() {
 #ifdef USE_ROCM
+  static const bool arch_verbose =
+      c10::utils::check_env("TORCH_ROCM_GEMM_ARCH_VERBOSE") == true;
+
   // CK GEMM support is broader than CK SDPA.
   // Includes CDNA (gfx90a/gfx942/gfx950) and RDNA3/RDNA4 where WMMA CK kernels exist.
   static const std::vector<std::string> supported_archs = {
@@ -624,12 +631,23 @@ bool Context::ckGemmSupported() {
 #endif
   };
   for (auto index : c10::irange(detail::getCUDAHooks().deviceCount())) {
+    if (arch_verbose) {
+      auto* prop = at::cuda::getDeviceProperties(index);
+      std::fprintf(stderr, "[TORCH_ROCM_GEMM_ARCH_VERBOSE] GPU %d: %s (gcnArch: %s)\n",
+          static_cast<int>(index), prop->name, prop->gcnArchName);
+    }
     if (!detail::getCUDAHooks().isGPUArch(supported_archs, index)) {
+      if (arch_verbose) {
+        std::fprintf(stderr, "[TORCH_ROCM_GEMM_ARCH_VERBOSE] CK GEMM: NOT supported on this GPU\n");
+      }
       TORCH_WARN_ONCE(
           "Attempting to use CK GEMM on an unsupported architecture! Cannot set "
           "blas backend to CK");
       return false;
     }
+  }
+  if (arch_verbose) {
+    std::fprintf(stderr, "[TORCH_ROCM_GEMM_ARCH_VERBOSE] CK GEMM: supported on this GPU\n");
   }
   return true;
 #else
