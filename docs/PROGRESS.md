@@ -300,3 +300,30 @@ Complete. Committed as `2cdcdeb`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Check if ScaledBlas.cpp or GroupedBlas.cpp have similar arch gating issues
+
+## Iteration 10 — Audit ScaledBlas, GroupedBlas, and CUDABlas Caller
+
+### Plan
+Audit remaining files with arch lists for ROCM_VERSION gating consistency: ScaledBlas.cpp, GroupedBlas.cpp, and CUDABlas.cpp caller logic.
+
+### Changes
+No code changes needed — all files were already properly gated.
+
+### Audit Findings
+- **`ScaledBlas.cpp`**: Properly gates gfx1200/gfx1201 with `ROCM_VERSION >= 60300`, gfx950 with `ROCM_VERSION >= 60500`. No gfx1150/gfx1151 or gfx1100-1103 (correct — FP8 is CDNA-only).
+- **`GroupedBlas.cpp`**: Same proper gating as ScaledBlas. Group GEMM arch check at line 712 also correct (`gfx942`, `gfx950`, `gfx90a` only).
+- **`CUDABlas.cpp`**: Float CK GEMM caller at line 1217 correctly checks `{"gfx11", "gfx12"}` and falls back to cublaslt for RDNA. Half and BFloat16 CK GEMM callers have no arch check — correct because the dispatch functions handle arch gating internally.
+- **`CUDABlas.cpp` mixed-type**: `#if defined(USE_ROCM) && !defined(_MSC_VER)` guards on Half→float and BFloat16→float error paths are intentional — on Windows, mixed-type CK GEMM silently falls back to cublas instead of erroring.
+
+### Status
+Complete. No code changes needed — audit confirmed all files are properly gated.
+
+### What Was Learned
+- ScaledBlas and GroupedBlas use different version thresholds than CK GEMM (gfx950 at >= 60500 vs >= 70000) because they use hipBLASLt, not CK WMMA
+- The CUDABlas.cpp caller for float CK GEMM has a defense-in-depth arch check that complements our new arch guard in gemm_internal_ck<float>
+- Mixed-type GEMM (Half→float, BFloat16→float) has intentional Windows-specific behavior via `!defined(_MSC_VER)`
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Look at the inductor CK backend code generation for improvements
