@@ -581,10 +581,19 @@ bool Context::ckSDPASupported() {
 bool Context::ckGemmSupported() {
 #ifdef USE_ROCM
   // CK GEMM support is broader than CK SDPA.
+  // Includes CDNA (gfx90a/gfx942/gfx950) and RDNA3/RDNA4 where WMMA CK kernels exist.
   static const std::vector<std::string> supported_archs = {
       "gfx90a",
       "gfx942",
       "gfx950",
+      "gfx1100",
+      "gfx1101",
+      "gfx1102",
+      "gfx1103",
+      "gfx1150",
+      "gfx1151",
+      "gfx1200",
+      "gfx1201",
   };
   for (auto index : c10::irange(detail::getCUDAHooks().deviceCount())) {
     if (!detail::getCUDAHooks().isGPUArch(supported_archs, index)) {
