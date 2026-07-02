@@ -6,6 +6,10 @@
 
 --------------------------------------------------------------------------------
 
+> **Fork Notice:** This is a PyTorch fork with enhanced ROCm support, including CK GEMM on Windows, expanded RDNA3/RDNA4 architecture support, and improved GEMM dispatch heuristics. See [docs/PROGRESS.md](docs/PROGRESS.md) for a detailed changelog of fork-specific changes.
+
+--------------------------------------------------------------------------------
+
 PyTorch is a Python package that provides two high-level features:
 - Tensor computation (like NumPy) with strong GPU acceleration
 - Deep neural networks built on a tape-based autograd system
@@ -218,12 +222,32 @@ If you are building for NVIDIA's Jetson platforms (Jetson Nano, TX1, TX2, AGX Xa
 ##### AMD ROCm Support
 If you want to compile with ROCm support, install
 - [AMD ROCm](https://rocm.docs.amd.com/en/latest/deploy/linux/quick_start.html) 4.0 and above installation
-- ROCm is currently supported only for Linux systems.
+- ROCm is supported on both Linux and Windows (HIP SDK)
 
-By default the build system expects ROCm to be installed in `/opt/rocm`. If ROCm is installed in a different directory, the `ROCM_PATH` environment variable must be set to the ROCm installation directory. The build system automatically detects the AMD GPU architecture. Optionally, the AMD GPU architecture can be explicitly set with the `PYTORCH_ROCM_ARCH` environment variable [AMD GPU architecture](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html#supported-gpus)
+By default the build system expects ROCm to be installed in `/opt/rocm` (Linux) or the HIP SDK install path (Windows). If ROCm is installed in a different directory, the `ROCM_PATH` environment variable must be set to the ROCm installation directory. The build system automatically detects the AMD GPU architecture. Optionally, the AMD GPU architecture can be explicitly set with the `PYTORCH_ROCM_ARCH` environment variable [AMD GPU architecture](https://rocm.docs.amd.com/projects/install-on-linux/en/latest/reference/system-requirements.html#supported-gpus)
 
 If you want to disable ROCm support, export the environment variable `USE_ROCM=0`.
 Other potentially useful environment variables may be found in `setup.py`.
+
+**Fork-specific ROCm enhancements:**
+
+This fork includes several enhancements over upstream PyTorch for ROCm:
+
+- **CK GEMM enabled on Windows** — `USE_ROCM_CK_GEMM` is enabled on both Linux and Windows, unlocking Composable Kernel GEMM optimizations (BFloat16, Half, float32, group GEMM, BGEMM) for Windows ROCm users
+- **Expanded GPU architecture support** — hipBLASLt and CK GEMM support added for RDNA3 (`gfx1100`–`gfx1103`) and RDNA4 (`gfx1150`/`gfx1151`, `gfx1200`/`gfx1201`) with proper ROCm version gating
+- **Improved BGEMM dispatch** — heuristic dispatch expanded with more kernel variants, lookup dispatch map enabled for common LLM attention shapes (Q@K^T, Attn@V)
+- **Architecture gating fixes** — `ROCM_VERSION` gating made consistent across `ckGemmSupported()`, WMMA dispatch, and hipBLASLt arch lists
+- **Float32 CK GEMM arch guard** — defense-in-depth arch check added to prevent crashes on non-CDNA GPUs
+
+**Fork-specific environment variables:**
+
+| Variable | Description |
+| --- | --- |
+| `TORCH_ROCM_PREFER_CK_GEMM=1` | Auto-select CK GEMM as the preferred BLAS backend at startup (fork-specific) |
+| `TORCH_BLAS_PREFER_CUBLASLT=1` | Prefer hipBLASLt/cuBLASLt as BLAS backend (upstream) |
+| `TORCH_BLAS_PREFER_HIPBLASLT=1` | Alias for `TORCH_BLAS_PREFER_CUBLASLT` (upstream) |
+| `ROCM_ALLOW_GROUP_GEMM_CK=1` | Enable CK path for grouped GEMM (upstream) |
+| `TORCH_ROCM_FA_PREFER_CK=1` | Prefer CK backend for Flash Attention (upstream) |
 
 ##### Intel GPU Support
 If you want to compile with Intel GPU support, follow these
