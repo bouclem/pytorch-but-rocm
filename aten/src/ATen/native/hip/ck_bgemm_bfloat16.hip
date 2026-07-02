@@ -18,13 +18,44 @@ struct IntTupleHash {
 };
 
 // Map for specific shape dispatching.
+// Entries target common LLM attention BGEMM shapes:
+// - Q@K^T: (seq_len, seq_len, head_dim) — square shapes with small k
+// - Attn@V: (seq_len, head_dim, seq_len) — tall-skinny with large k
 static const std::unordered_map<
     std::tuple<int, int, int>,
     BGEMMKernel_BFloat16,
     IntTupleHash>
     lookup_dispatch = {
+        // Existing tuned shape
         {{5120, 64, 8192},
-         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3}
+         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        // Q@K^T with head_dim=64: square (seq,seq) shapes
+        {{512, 512, 64},
+         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{1024, 1024, 64},
+         bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{2048, 2048, 64},
+         bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{4096, 4096, 64},
+         bgemm_kernel_bf16bf16bf16_256_256x224x64_16x16_8x7_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3},
+        // Q@K^T with head_dim=128: square (seq,seq) shapes
+        {{512, 512, 128},
+         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{1024, 1024, 128},
+         bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{2048, 2048, 128},
+         bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{4096, 4096, 128},
+         bgemm_kernel_bf16bf16bf16_256_256x224x64_16x16_8x7_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3},
+        // Attn@V: (seq_len, head_dim, seq_len) — tall-skinny with large k
+        {{2048, 64, 2048},
+         bgemm_kernel_bf16bf16bf16_128_16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v2},
+        {{2048, 128, 2048},
+         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
+        {{4096, 64, 4096},
+         bgemm_kernel_bf16bf16bf16_128_16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v2},
+        {{4096, 128, 4096},
+         bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3},
     };
 
 
