@@ -169,3 +169,33 @@ Complete. Committed as `aca9a75`.
 - Or: Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels)
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection
 - Or: Investigate the `ck_gemm_float.hip` dispatch for potential improvements
+
+## Iteration 6 — Add LLM Attention Shape Entries to BGEMM Lookup Dispatch
+
+### Plan
+The lookup_dispatch map was enabled in iteration 5 but only had one entry. Add entries for common LLM attention BGEMM shapes to enable exact-match kernel dispatching for the most frequent patterns.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Added 12 lookup_dispatch entries for common LLM attention shapes:
+    - Q@K^T: (512,512,64), (1024,1024,64), (2048,2048,64), (4096,4096,64), (512,512,128), (1024,1024,128), (2048,2048,128), (4096,4096,128)
+    - Attn@V: (2048,64,2048), (2048,128,2048), (4096,64,4096), (4096,128,4096)
+  - Kernel selection based on tile fit: 128x128 for smaller shapes, 224x256 for medium, 256x224 for large, 16x64 for skinny-n
+
+### Why It Matters
+Attention computation (Q@K^T and Attn@V) is the most frequent BGEMM pattern in transformer models. Exact-match dispatching via the lookup map ensures the best kernel is always selected for these shapes, bypassing the heuristic fallback. This is especially important for Llama/Mistral/Qwen models that use head_dim=64 or 128 with seq_len=512-4096.
+
+### Status
+Complete. Committed as `7450132`.
+
+### What Was Learned
+- The lookup_dispatch map uses (m, n, k) tuple as key — these are per-batch dimensions, not including the batch dimension
+- Q@K^T produces square (seq,seq) shapes with small k=head_dim, while Attn@V produces (seq,head_dim) shapes with large k=seq
+- For skinny-n shapes (Attn@V with head_dim=64), the 16x64x64 kernel is a good fit
+- For large square shapes (4096x4096), the 256x224x64 kernel provides better occupancy
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection
+- Or: Investigate the `ck_gemm_float.hip` dispatch for potential improvements
+- Or: Look at the inductor CK backend code generation for improvements
