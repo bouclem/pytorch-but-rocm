@@ -773,7 +773,12 @@ void dispatch_bfloat16_gemm_wmma(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
 template <>
 void gemm_internal_ck<at::BFloat16>(CUDABLAS_GEMM_ARGTYPES(at::BFloat16)) {
   static const std::vector<std::string> wmma_archs = {
-    "gfx1100", "gfx1101", "gfx1102", "gfx1103", "gfx1200", "gfx1201",
+#if ROCM_VERSION >= 60300
+    "gfx1100", "gfx1101", "gfx1102", "gfx1103",
+#endif
+#if ROCM_VERSION >= 60400
+    "gfx1200", "gfx1201",
+#endif
 #if ROCM_VERSION >= 70000
     "gfx1150", "gfx1151"
 #endif

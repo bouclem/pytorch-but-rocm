@@ -585,17 +585,21 @@ bool Context::ckGemmSupported() {
   static const std::vector<std::string> supported_archs = {
       "gfx90a",
       "gfx942",
-      "gfx950",
+#if ROCM_VERSION >= 60300
       "gfx1100",
       "gfx1101",
       "gfx1102",
       "gfx1103",
+#endif
+#if ROCM_VERSION >= 60400
+      "gfx1200",
+      "gfx1201",
+#endif
 #if ROCM_VERSION >= 70000
       "gfx1150",
       "gfx1151",
+      "gfx950",
 #endif
-      "gfx1200",
-      "gfx1201",
   };
   for (auto index : c10::irange(detail::getCUDAHooks().deviceCount())) {
     if (!detail::getCUDAHooks().isGPUArch(supported_archs, index)) {
