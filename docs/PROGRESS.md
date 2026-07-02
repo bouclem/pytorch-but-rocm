@@ -439,3 +439,38 @@ Complete. Committed as `8cc27ec`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Add TORCH_ROCM_FORCE_BLAS_BACKEND env var as a simpler alternative to the existing per-backend env vars
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 14 — Add TORCH_ROCM_FORCE_BLAS_BACKEND Env Var
+
+### Plan
+Add a unified `TORCH_ROCM_FORCE_BLAS_BACKEND` env var that accepts a string value (`ck`, `hipblaslt`, `cublaslt`, `hipblas`, `cublas`) to select the BLAS backend. Takes priority over existing per-backend env vars. Also refactored the nested ternary initialization into a readable lambda.
+
+### Changes
+- **`aten/src/ATen/Context.h`**:
+  - Added `#include <algorithm>` for `std::transform`
+  - Refactored `blas_preferred_backend` initialization from nested ternary to IIFE lambda
+  - Added `TORCH_ROCM_FORCE_BLAS_BACKEND` check using `c10::utils::get_env()` (string-based, not bool)
+  - Priority: `TORCH_ROCM_FORCE_BLAS_BACKEND` > `TORCH_BLAS_PREFER_CUBLASLT`/`HIPBLASLT` > `TORCH_ROCM_PREFER_CK_GEMM` > Default
+  - Case-insensitive matching for backend name
+- **`README.md`**:
+  - Added `TORCH_ROCM_FORCE_BLAS_BACKEND` to environment variables table
+
+### Why It Matters
+- Simpler UX: one env var with a string value instead of multiple bool env vars
+- More discoverable: `TORCH_ROCM_FORCE_BLAS_BACKEND=ck` is self-documenting
+- The refactored lambda is much more readable than the previous nested ternary
+- Backward compatible: existing env vars still work, new one just takes priority
+
+### Status
+Complete. Committed as `bb39c5f`.
+
+### What Was Learned
+- `c10::utils::check_env()` returns `std::optional<bool>` (only for 0/1 flags), while `c10::utils::get_env()` returns `std::optional<std::string>` for arbitrary string values
+- IIFE (Immediately Invoked Function Expression) pattern works well in C++ member initializers for complex logic
+- The existing nested ternary was hard to read and error-prone — the lambda is a significant readability improvement
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Add TORCH_ROCM_GEMM_TILE_VERBOSE env var to print which tile config is selected for each GEMM
+- Or: Look at the inductor CK backend code generation for improvements
