@@ -232,3 +232,31 @@ Complete. Committed as `ad6c722`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Add more kernel variants to the BGEMM lookup_dispatch map
+
+## Iteration 8 — Fix ROCM_VERSION Gating Inconsistency + Float CK GEMM Arch Guard
+
+### Plan
+Two issues found: (1) `ckGemmSupported()` in `Context.cpp` listed `gfx1150`/`gfx1151` unconditionally while the WMMA dispatch files gate them with `#if ROCM_VERSION >= 70000` — would cause a crash on ROCm < 7.0. (2) `gemm_internal_ck<float>` had no arch gating — would crash on RDNA if called directly.
+
+### Changes
+- **`aten/src/ATen/Context.cpp`**:
+  - Added `#if ROCM_VERSION >= 70000` guard around `gfx1150`/`gfx1151` in `ckGemmSupported()` to match the WMMA dispatch files
+- **`aten/src/ATen/native/hip/ck_gemm_float.hip`**:
+  - Added arch check in `gemm_internal_ck<float>`: only dispatch on gfx9 (CDNA), clear error otherwise
+
+### Why It Matters
+The `ckGemmSupported()` inconsistency was a real bug: on ROCm < 7.0 with gfx1150, the function would return true, allowing the user to set blas backend to CK, but the WMMA dispatch would crash with "unsupported gfx arch". The float arch guard is defense-in-depth — the caller already checks, but the function itself should also be safe.
+
+### Status
+Complete. Committed as `ea30354` (Context.cpp fix) and `ad6c722` (float arch guard).
+
+### What Was Learned
+- Always cross-reference arch lists between `ckGemmSupported()` and the actual dispatch functions — they must be consistent
+- `ROCM_VERSION` is defined globally via `add_definitions(-DROCM_VERSION=...)` in `Dependencies.cmake` — available to all source files
+- The `gfx1150`/`gfx1151` archs require ROCm 7.0+ for WMMA support — this gating must be applied everywhere these archs appear in CK GEMM context
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Audit all arch lists across the codebase for ROCM_VERSION gating consistency
