@@ -260,3 +260,43 @@ Complete. Committed as `ea30354` (Context.cpp fix) and `ad6c722` (float arch gua
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Audit all arch lists across the codebase for ROCM_VERSION gating consistency
+
+## Iteration 9 — Audit and Fix ROCM_VERSION Gating Consistency
+
+### Plan
+Systematic audit of all CK GEMM arch lists to ensure ROCM_VERSION gating matches CUDAHooks.cpp. Found that Context.cpp, ck_gemm_bfloat16.hip, and ck_gemm_half.hip listed RDNA3/RDNA4/CDNA archs without version gating.
+
+### Changes
+- **`aten/src/ATen/Context.cpp`** (`ckGemmSupported()`):
+  - Added `#if ROCM_VERSION >= 60300` around gfx1100-1103
+  - Added `#if ROCM_VERSION >= 60400` around gfx1200/1201
+  - Added `#if ROCM_VERSION >= 70000` around gfx1150/1151 and gfx950
+- **`aten/src/ATen/native/hip/ck_gemm_bfloat16.hip`** (WMMA archs):
+  - Same version gating applied
+- **`aten/src/ATen/native/hip/ck_gemm_half.hip`** (WMMA archs):
+  - Same version gating applied
+
+### Why It Matters
+Without proper gating, `ckGemmSupported()` could return true on ROCm versions where the WMMA dispatch wouldn't work (e.g., gfx1200 on ROCm < 6.4). This creates a mismatch where the user can set blas backend to CK but the actual kernel dispatch crashes. Now all three locations (CUDAHooks.cpp, Context.cpp, dispatch files) use consistent version gating.
+
+### Research Findings
+- gfx1200/gfx1201 (RDNA4) introduced in ROCm 6.4.0
+- gfx1150/gfx1151 (RDNA3.5) require ROCm 7.0+ for WMMA CK GEMM
+- gfx950 (CDNA3) requires ROCm 7.0+
+- gfx1100-1103 (RDNA3) require ROCm 6.3.0+
+- CUDAHooks.cpp already had correct gating — this was the reference
+
+### Status
+Complete. Committed as `2cdcdeb`.
+
+### What Was Learned
+- All CK GEMM arch lists must be cross-referenced for version gating consistency
+- CUDAHooks.cpp is the source of truth for version-gated arch lists
+- The version thresholds differ by feature: hipBLASLt may support an arch earlier than CK GEMM WMMA
+- A systematic audit after adding new archs is essential to catch gating inconsistencies
+
+### Next Iteration Should Tackle
+- Add WMMA BGEMM dispatch for RDNA3/RDNA4 (currently BGEMM only has XDL/CDNA kernels — RDNA users get no CK BGEMM)
+- Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Check if ScaledBlas.cpp or GroupedBlas.cpp have similar arch gating issues
