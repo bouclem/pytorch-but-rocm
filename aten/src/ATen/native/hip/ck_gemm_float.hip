@@ -475,7 +475,15 @@ void dispatch_float_gemm(CUDABLAS_GEMM_ARGTYPES(float)) {
 
 template <>
 void gemm_internal_ck<float>(CUDABLAS_GEMM_ARGTYPES(float)) {
-  dispatch_float_gemm(CUDABLAS_GEMM_ARGS(float));
+  // Float32 CK GEMM uses XDL which is only available on CDNA (gfx9).
+  // WMMA on RDNA3/RDNA4 does not support FP32 — only FP16/BF16/IU8/IU4.
+  if (at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
+    dispatch_float_gemm(CUDABLAS_GEMM_ARGS(float));
+  }
+  else {
+    TORCH_CHECK(false, "gemm_internal_ck<float> unsupported gfx arch: "
+        "CK GEMM for float32 requires CDNA (gfx9) with XDL");
+  }
 }
 
 // temporarily put this here until we implement double support
