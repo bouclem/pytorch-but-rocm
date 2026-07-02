@@ -590,8 +590,10 @@ bool Context::ckGemmSupported() {
       "gfx1101",
       "gfx1102",
       "gfx1103",
+#if ROCM_VERSION >= 70000
       "gfx1150",
       "gfx1151",
+#endif
       "gfx1200",
       "gfx1201",
   };
