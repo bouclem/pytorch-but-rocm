@@ -1,7 +1,5 @@
 #undef __HIP_NO_HALF_CONVERSIONS__
 
-#include <iostream>
-
 #include <ATen/native/hip/ck_bgemm.h>
 #include <ATen/native/hip/bgemm_kernels/bgemm_kernel_collection.h>
 
@@ -32,28 +30,37 @@ static const std::unordered_map<
 
 // This is the heuristic to choose a kernel based on inputs
 BGEMMKernel_BFloat16 dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
-  // Optional/future use: directly lookup shape tuples to map to instances
-  /*
+  // Direct lookup for known high-priority shapes (e.g. LLM attention patterns)
   auto it = lookup_dispatch.find({m, n, k});
   if (it != lookup_dispatch.end()) {
     return it->second;
   }
-  */
 
-  // B is A and A is B, so m<-->n
-  // std::cout << "dispatch_bfloat16_bgemm: m=" << m << " n=" << n << " k=" << k << " num_batches=" << num_batches << " transa=" << transa << " transb=" << transb << std::endl;
+  // Heuristic dispatch based on m, n dimensions.
+  // Note: B is A and A is B, so m<-->n in the actual kernel call.
 
   if (m <= 5120) {
     if (n <= 4) return bgemm_kernel_bf16bf16bf16_64_16x16x64_16x16_1x1_8x8x1_8x8x1_1x16x1x4_4_Intrawave_v1;
     else if (n <= 32) return bgemm_kernel_bf16bf16bf16_128_16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v2;
-    else if (n <= 128) return bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3; // <512, <1024, <2048 missing
+    else if (n <= 128) return bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
+    else if (n <= 512) return bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
+    else if (n <= 1024) return bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
+    else if (n <= 2048) return bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
     else if (n <= 4096) return bgemm_kernel_bf16bf16bf16_256_224x256x64_16x16_7x8_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
   }
   else if (m <= 8192) {
-    if (n <= 8) return bgemm_kernel_bf16bf16bf16_128_16x32x64_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v1; // 3 options available, need to investigate
+    if (n <= 8) return bgemm_kernel_bf16bf16bf16_128_16x32x64_16x16_1x1_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v1;
     if (n <= 32) return bgemm_kernel_bf16bf16bf16_128_16x64x64_16x16_1x2_8x16x1_8x16x1_1x16x1x8_4_Intrawave_v2;
     if (n <= 512) return bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
     if (n <= 4096) return bgemm_kernel_bf16bf16bf16_256_256x224x64_16x16_8x7_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3;
+  }
+  else {
+    // Large m: use larger tiles for better occupancy
+    if (n <= 16) return bgemm_kernel_bf16bf16bf16_256_256x16x64_16x16_4x1_8x32x1_8x16x1_1x32x1x8_2_Intrawave_v2;
+    if (n <= 128) return bgemm_kernel_bf16bf16bf16_256_128x128x64_32x32_2x2_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v3;
+    if (n <= 4096) return bgemm_kernel_bf16bf16bf16_256_256x224x64_16x16_8x7_8x32x1_8x32x1_1x32x1x8_4_Intrawave_v3;
+    // Large square shapes: use 256x256x32 for better tile fit
+    return bgemm_kernel_bf16bf16bf16_256_256x256x32_32x32_4x4_8x32x1_8x32x1_1x16x1x16_4_Intrawave_v4;
   }
 
   // Default instance
@@ -62,24 +69,6 @@ BGEMMKernel_BFloat16 dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGTYPES(at::BFloat1
 
 template <>
 void bgemm_internal_ck<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
-  /*
-  std::cerr << "bgemm_internal_ck: " << std::endl
-   << "\t" << num_batches
-   << "\t" << m
-   << "\t" << n
-   << "\t" << k << std::endl
-   << "\t" << stridea
-   << "\t" << strideb
-   << "\t" << stridec
-   << "\t" << lda
-   << "\t" << ldb
-   << "\t" << ldc << std::endl
-   << "\t" << transa
-   << "\t" << transb << std::endl
-   << "\t" << alpha
-   << "\t" << beta << std::endl;
-  */
-
   BGEMMKernel_BFloat16 bgemm_impl = dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   bgemm_impl(CUDABLAS_BGEMM_ARGS(at::BFloat16));
 }
