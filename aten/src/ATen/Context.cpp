@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <string>
 
 #include <ATen/cpu/FlushDenormal.h>
@@ -534,6 +535,9 @@ at::BlasBackend Context::blasPreferredBackend() {
   }
 
 #ifdef USE_ROCM
+  static const bool blas_verbose =
+      c10::utils::check_env("TORCH_ROCM_BLAS_VERBOSE") == true;
+
   // hipblaslt support for all archs is not as complete as hipblas
   if (blas_preferred_backend == at::BlasBackend::Cublaslt) {
     static const bool hipblaslt_unsupported = []() {
@@ -552,7 +556,25 @@ at::BlasBackend Context::blasPreferredBackend() {
       }
       return false;
     }();
-    if (hipblaslt_unsupported) blas_preferred_backend = at::BlasBackend::Cublas;
+    if (hipblaslt_unsupported) {
+      if (blas_verbose) {
+        std::fprintf(stderr, "[TORCH_ROCM_BLAS_VERBOSE] hipBLASLt unsupported on this GPU, "
+            "falling back to hipBLAS (rocBLAS)\n");
+      }
+      blas_preferred_backend = at::BlasBackend::Cublas;
+    }
+  }
+
+  if (blas_verbose) {
+    const char* backend_name = "unknown";
+    switch (blas_preferred_backend) {
+      case at::BlasBackend::Cublas: backend_name = "hipBLAS (rocBLAS)"; break;
+      case at::BlasBackend::Cublaslt: backend_name = "hipBLASLt"; break;
+      case at::BlasBackend::Ck: backend_name = "CK GEMM (Composable Kernel)"; break;
+      case at::BlasBackend::Default: backend_name = "default (auto)"; break;
+    }
+    std::fprintf(stderr, "[TORCH_ROCM_BLAS_VERBOSE] Selected BLAS backend: %s\n",
+        backend_name);
   }
 #endif
   return blas_preferred_backend;
