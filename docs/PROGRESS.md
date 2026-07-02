@@ -67,3 +67,29 @@ Complete. Committed as `e6b2043`.
 - Improve CK GEMM dispatch heuristic — the `dispatch_half_gemm` XDL path is entirely behind `#if 0` (disabled), meaning only WMMA works for Half on RDNA3
 - Or: Add shape-based tile selection to the WMMA dispatch (currently uses one config for all shapes)
 - Or: Look into the `ck_gemm_float.hip` to see if it needs similar arch list updates
+
+## Iteration 3 — Enable Disabled XDL Dispatch for Half (float16) CK GEMM on CDNA
+
+### Plan
+The `dispatch_half_gemm` XDL path in `ck_gemm_half.hip` was entirely disabled with `#if 0`, making CK GEMM silently broken for float16 on CDNA (gfx9) GPUs. Enable it to match BFloat16 which has this path active.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_gemm_half.hip`**:
+  - Removed `#if 0` and `#endif` around the `dispatch_half_gemm` function body
+  - This enables the XDL-based CK GEMM for float16 on CDNA architectures (gfx90a, gfx942, gfx950)
+
+### Why It Matters
+When `gemm_internal_ck<at::Half>` was called on a CDNA GPU, it dispatched to `dispatch_half_gemm` which had an empty body due to `#if 0`. This meant CK GEMM for float16 was silently a no-op on MI200/MI300. The BFloat16 equivalent `dispatch_bfloat16_gemm` has this path enabled, so Half should too.
+
+### Status
+Complete. Committed as `66e96ae`.
+
+### What Was Learned
+- The `#if 0` was likely a development workaround that was never re-enabled
+- Always check for `#if 0` blocks in dispatch functions — they may be silently disabling important code paths
+- The XDL and WMMA paths serve different architectures: XDL for CDNA (gfx9), WMMA for RDNA (gfx11+)
+
+### Next Iteration Should Tackle
+- Add shape-based tile selection to WMMA dispatch (currently uses one config for all shapes)
+- Or: Improve BGEMM kernel dispatch heuristic with more shape coverage
+- Or: Look at the inductor CK backend code generation for improvements
