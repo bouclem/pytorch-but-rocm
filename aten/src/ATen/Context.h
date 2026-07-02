@@ -29,6 +29,7 @@
 #include <c10/util/hash.h>
 #include <c10/util/irange.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <mutex>
@@ -514,17 +515,32 @@ class TORCH_API Context {
        c10::utils::check_env("TORCH_LINALG_PREFER_HIPSOLVER") == true) // alias
       ? at::LinalgBackend::Cusolver
       : at::LinalgBackend::Default;
-  at::BlasBackend blas_preferred_backend =
-      (c10::utils::check_env("TORCH_BLAS_PREFER_CUBLASLT") == true ||
-       c10::utils::check_env("TORCH_BLAS_PREFER_HIPBLASLT") == true) // alias
-      ? at::BlasBackend::Cublaslt
-      : ((c10::utils::check_env("TORCH_BLAS_PREFER_CUBLASLT") == false ||
-          c10::utils::check_env("TORCH_BLAS_PREFER_HIPBLASLT") ==
-              false) // alias
-             ? at::BlasBackend::Cublas
-             : ((c10::utils::check_env("TORCH_ROCM_PREFER_CK_GEMM") == true)
-                    ? at::BlasBackend::Ck
-                    : at::BlasBackend::Default));
+  at::BlasBackend blas_preferred_backend = []() {
+    // TORCH_ROCM_FORCE_BLAS_BACKEND takes priority (fork-specific).
+    // Accepts: ck, hipblaslt, cublaslt, hipblas, cublas
+    auto force = c10::utils::get_env("TORCH_ROCM_FORCE_BLAS_BACKEND");
+    if (force.has_value()) {
+      std::string val = *force;
+      std::transform(val.begin(), val.end(), val.begin(), ::tolower);
+      if (val == "ck") return at::BlasBackend::Ck;
+      if (val == "hipblaslt" || val == "cublaslt") return at::BlasBackend::Cublaslt;
+      if (val == "hipblas" || val == "cublas") return at::BlasBackend::Cublas;
+    }
+    // Existing per-backend env vars (upstream).
+    if (c10::utils::check_env("TORCH_BLAS_PREFER_CUBLASLT") == true ||
+        c10::utils::check_env("TORCH_BLAS_PREFER_HIPBLASLT") == true) {
+      return at::BlasBackend::Cublaslt;
+    }
+    if (c10::utils::check_env("TORCH_BLAS_PREFER_CUBLASLT") == false ||
+        c10::utils::check_env("TORCH_BLAS_PREFER_HIPBLASLT") == false) {
+      return at::BlasBackend::Cublas;
+    }
+    // Fork-specific: auto-select CK GEMM.
+    if (c10::utils::check_env("TORCH_ROCM_PREFER_CK_GEMM") == true) {
+      return at::BlasBackend::Ck;
+    }
+    return at::BlasBackend::Default;
+  }();
   at::ROCmFABackend rocm_fa_preferred_backend =
       c10::utils::check_env("TORCH_ROCM_FA_PREFER_CK") == true
       ? at::ROCmFABackend::Ck

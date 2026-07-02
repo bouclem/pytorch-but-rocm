@@ -244,6 +244,7 @@ This fork includes several enhancements over upstream PyTorch for ROCm:
 | Variable | Description |
 | --- | --- |
 | `TORCH_ROCM_PREFER_CK_GEMM=1` | Auto-select CK GEMM as the preferred BLAS backend at startup (fork-specific) |
+| `TORCH_ROCM_FORCE_BLAS_BACKEND=ck\|hipblaslt\|hipblas` | Force BLAS backend selection by name, takes priority over other env vars (fork-specific) |
 | `TORCH_ROCM_BLAS_VERBOSE=1` | Print selected BLAS backend and fallback reasons to stderr (fork-specific) |
 | `TORCH_ROCM_GEMM_ARCH_VERBOSE=1` | Print GPU arch detection and CK GEMM support info to stderr (fork-specific) |
 | `TORCH_BLAS_PREFER_CUBLASLT=1` | Prefer hipBLASLt/cuBLASLt as BLAS backend (upstream) |
