@@ -740,7 +740,8 @@ void bgemm_internal<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16))
     }
   }
 #if defined(USE_ROCM) && defined(USE_ROCM_CK_GEMM)
-  else if (at::globalContext().blasPreferredBackend() == BlasBackend::Ck) {
+  else if (at::globalContext().blasPreferredBackend() == BlasBackend::Ck &&
+           at::detail::getCUDAHooks().isGPUArch({"gfx9"})) {
     at::native::bgemm_internal_ck<at::BFloat16>(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   }
 #endif

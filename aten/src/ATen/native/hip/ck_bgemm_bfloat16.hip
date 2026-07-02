@@ -2,6 +2,7 @@
 
 #include <ATen/native/hip/ck_bgemm.h>
 #include <ATen/native/hip/bgemm_kernels/bgemm_kernel_collection.h>
+#include <ATen/detail/CUDAHooksInterface.h>
 
 namespace at::native {
 
@@ -100,6 +101,12 @@ BGEMMKernel_BFloat16 dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGTYPES(at::BFloat1
 
 template <>
 void bgemm_internal_ck<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
+  // CK BGEMM kernels are XDL-only (CDNA/gfx9). No WMMA BGEMM path exists.
+  TORCH_CHECK(
+      at::detail::getCUDAHooks().isGPUArch({"gfx9"}),
+      "bgemm_internal_ck<at::BFloat16> requires CDNA (gfx9) architecture. ",
+      "CK BGEMM kernels use XDL instructions not available on RDNA. ",
+      "Use a different BLAS backend (hipBLASLt or rocBLAS) for BGEMM on this GPU.");
   BGEMMKernel_BFloat16 bgemm_impl = dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   bgemm_impl(CUDABLAS_BGEMM_ARGS(at::BFloat16));
 }

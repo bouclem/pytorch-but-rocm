@@ -474,3 +474,41 @@ Complete. Committed as `bb39c5f`.
 - Or: Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
 - Or: Add TORCH_ROCM_GEMM_TILE_VERBOSE env var to print which tile config is selected for each GEMM
 - Or: Look at the inductor CK backend code generation for improvements
+
+## Iteration 15 — Add Architecture Gating to CK BGEMM (Prevent RDNA Crash)
+
+### Plan
+`bgemm_internal_ck<at::BFloat16>` in `ck_bgemm_bfloat16.hip` had no architecture gating. All BGEMM kernels are XDL-only (CDNA/gfx9). If an RDNA user sets CK as preferred backend (via `TORCH_ROCM_PREFER_CK_GEMM=1` or `TORCH_ROCM_FORCE_BLAS_BACKEND=ck`), BGEMM would try to run XDL kernels on RDNA hardware and crash. Same class of bug as fixed for float GEMM in iteration 7.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Added `#include <ATen/detail/CUDAHooksInterface.h>` for `at::detail::getCUDAHooks()`
+  - Added arch check in `bgemm_internal_ck<at::BFloat16>`: only dispatch on gfx9 (CDNA), clear `TORCH_CHECK` error on other archs
+- **`aten/src/ATen/cuda/CUDABlas.cpp`**:
+  - Added `at::detail::getCUDAHooks().isGPUArch({"gfx9"})` check to BGEMM caller
+  - On non-gfx9 archs, falls through to `bgemm_internal_cublas` (rocBLAS) instead of calling CK BGEMM
+
+### Why It Matters
+This is a safety/correctness fix. Without it, RDNA users who set CK as preferred backend would crash on any BGEMM operation (e.g., attention computation Q@K^T, Attn@V). The caller-level check ensures seamless fallback to rocBLAS, while the function-level guard provides defense-in-depth with a clear error message.
+
+### Research Findings
+- CK has separate XDL (gfx9/CDNA) and WMMA (gfx11+/RDNA) instances — confirmed by CK PR #1223
+- CK_TILE GEMM WMMA support for GFX11/GFX12 was added in CK PR #2466, but this is for the newer CK_TILE API, not the older CK BGEMM kernels used in PyTorch
+- No WMMA BGEMM kernels exist in the codebase — all 22 BGEMM kernel variants in `bgemm_kernels/` are XDL-based
+- Upstream PyTorch PR #187267 shows the pattern: gate CK BLAS on `ckGemmSupported()` which is arch-aware
+- The float GEMM caller in CUDABlas.cpp (line 1217) already has a similar arch check for gfx11/gfx12
+
+### Status
+Complete.
+
+### What Was Learned
+- BGEMM and GEMM have asymmetric WMMA support: GEMM has both XDL (CDNA) and WMMA (RDNA) paths, BGEMM only has XDL
+- The BGEMM caller had no arch check, unlike the float GEMM caller which checks for gfx11/gfx12
+- The `getCUDAHooks()` API is available via `<ATen/detail/CUDAHooksInterface.h>` — a lighter include than `<ATen/ATen.h>`
+- The mixed-type BFloat16->float BGEMM caller already had a TORCH_CHECK guard — no CK dispatch at all
+
+### Next Iteration Should Tackle
+- Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half
+- Or: Add TORCH_ROCM_GEMM_TILE_VERBOSE env var to print which tile config is selected for each GEMM
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Add more BGEMM lookup_dispatch entries for additional LLM shapes (e.g., seq_len=8192)
