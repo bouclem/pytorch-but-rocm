@@ -97,10 +97,24 @@ static const std::unordered_map<
 
 // This is the heuristic to choose a kernel based on inputs
 BGEMMKernel_BFloat16 dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
+  static const bool bgemm_tile_verbose =
+      c10::utils::check_env("TORCH_ROCM_GEMM_TILE_VERBOSE") == true;
+
   // Direct lookup for known high-priority shapes (e.g. LLM attention patterns)
   auto it = lookup_dispatch.find({m, n, k});
   if (it != lookup_dispatch.end()) {
+    if (bgemm_tile_verbose) {
+      std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] bgemm dispatch=lookup "
+          "m=%lld n=%lld k=%lld batch=%lld\n",
+          (long long)m, (long long)n, (long long)k, (long long)num_batches);
+    }
     return it->second;
+  }
+
+  if (bgemm_tile_verbose) {
+    std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] bgemm dispatch=heuristic "
+        "m=%lld n=%lld k=%lld batch=%lld\n",
+        (long long)m, (long long)n, (long long)k, (long long)num_batches);
   }
 
   // Heuristic dispatch based on m, n dimensions.
@@ -142,13 +156,6 @@ void bgemm_internal_ck<at::BFloat16>(CUDABLAS_BGEMM_ARGTYPES(at::BFloat16)) {
       "bgemm_internal_ck<at::BFloat16> requires CDNA (gfx9) architecture. ",
       "CK BGEMM kernels use XDL instructions not available on RDNA. ",
       "Use a different BLAS backend (hipBLASLt or rocBLAS) for BGEMM on this GPU.");
-
-  static const bool tile_verbose =
-      c10::utils::check_env("TORCH_ROCM_GEMM_TILE_VERBOSE") == true;
-  if (tile_verbose) {
-    std::fprintf(stderr, "[TORCH_ROCM_GEMM_TILE_VERBOSE] dtype=BFloat16 bgemm m=%lld n=%lld k=%lld "
-        "dispatch=XDL batch=%lld\n", (long long)m, (long long)n, (long long)k, (long long)num_batches);
-  }
 
   BGEMMKernel_BFloat16 bgemm_impl = dispatch_bfloat16_bgemm(CUDABLAS_BGEMM_ARGS(at::BFloat16));
   bgemm_impl(CUDABLAS_BGEMM_ARGS(at::BFloat16));

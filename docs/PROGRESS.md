@@ -601,3 +601,33 @@ Complete.
 - Or: Look at the inductor CK backend code generation for improvements
 - Or: Add TORCH_ROCM_BGEMM_TILE_VERBOSE for per-kernel BGEMM tile selection logging (which kernel was selected from lookup vs heuristic)
 - Or: Add support for non-power-of-2 head_dims (96, 192) in lookup_dispatch
+
+## Iteration 18 — Add BGEMM Dispatch Source Logging to TORCH_ROCM_GEMM_TILE_VERBOSE
+
+### Plan
+The BGEMM dispatch function `dispatch_bfloat16_bgemm` selects kernels from either the `lookup_dispatch` table (tuned for specific LLM shapes) or a heuristic fallback. The existing `TORCH_ROCM_GEMM_TILE_VERBOSE` env var (added in iteration 16) logged the shape from `bgemm_internal_ck` but didn't indicate which dispatch path was taken. This iteration moves the verbose logging into `dispatch_bfloat16_bgemm` to show whether the kernel came from lookup or heuristic, providing actionable insight for future tuning.
+
+### Changes
+- **`aten/src/ATen/native/hip/ck_bgemm_bfloat16.hip`**:
+  - Added `bgemm_tile_verbose` static check in `dispatch_bfloat16_bgemm`
+  - Logs `dispatch=lookup` when shape is found in `lookup_dispatch` table
+  - Logs `dispatch=heuristic` when shape falls through to heuristic dispatch
+  - Both log entries include m, n, k, and batch count
+  - Removed the duplicate verbose output from `bgemm_internal_ck` (the dispatch function now handles it with more detail)
+
+### Why It Matters
+When profiling BGEMM performance, knowing whether a shape hit the tuned lookup table or fell through to the heuristic is critical. If a high-frequency shape shows `dispatch=heuristic`, it's a candidate for adding a tuned entry to `lookup_dispatch`. This makes the verbose output directly actionable for optimization work.
+
+### Status
+Complete.
+
+### What Was Learned
+- The `dispatch_bfloat16_bgemm` function is called after the arch check in `bgemm_internal_ck`, so the verbose logging in the dispatch function is more informative (shows lookup vs heuristic)
+- Moving the verbose check to the dispatch function avoids duplicate logging — the caller no longer needs its own verbose check
+- The `static const bool` pattern in the dispatch function ensures the env var is only read once per process, same as in the GEMM dispatch functions
+
+### Next Iteration Should Tackle
+- Improve the WMMA GEMM dispatch with shape-based tile selection for bfloat16/half (now fully enabled by TORCH_ROCM_GEMM_TILE_VERBOSE)
+- Or: Look at the inductor CK backend code generation for improvements
+- Or: Add support for non-power-of-2 head_dims (96, 192) in BGEMM lookup_dispatch
+- Or: Add a second WMMA tile config for skinny GEMMs (small M) to improve decode performance
